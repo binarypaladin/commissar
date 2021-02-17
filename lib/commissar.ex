@@ -1,108 +1,114 @@
 defmodule Commissar do
   @moduledoc """
-  Commissar provides relatively simple pattern for creating sets of rules to see
-  if a subject is allowed to execute a particular action related to a given
+  Commissar provides relatively simple pattern for creating sets of policies to
+  see if a subject is allowed to execute a particular action related to a given
   context.
 
   A subject is whatever is trying to execute a particular action. In most cases
   this will probably be a user, but it could just as easily be a group or any
   other resource in an application.
 
-  A context is any term that provides the authorization rules with what will be
-  required to decide if the subject is allowed to execute a particular action.
-  This might be another system resource, but it may also be a tuple containing
-  some kind of permissions related to the user along with a given resource.
-  They could be in a map as well. It doesn't matter so long as they conform to
-  the expectations of the rules.
+  A context is any term that provides the authorization policies with what will
+  be required to decide if the subject is allowed to execute a particular
+  action. This might be another system resource, but it may also be a tuple
+  containing some kind of permissions related to the user along with a given
+  resource. They could be in a map as well. It doesn't matter so long as they
+  conform to the expectations of the policies.
 
   An action is a descriptor of what subject wants to exectute on the context. In
   most cases it will be an atom or a string with some sort of CRUD type name
   such as `read` or `update`.
 
-  A rule is a function that takes an action, a subject, and a context and
-  returns one of four responses (see `rule_result` type).
+  A policy is a function that takes an action, a subject, and a context and
+  returns one of four responses (see `policy_result` type).
   """
 
   @typedoc """
   One of four possible responses:
 
-  * `:allow` - The subject is allowed. Do not process any further rules.
-  * `:continue` - The rule could neither allow nor deny the subject. Move on to
-    the next rule. If no rules remain, the default response is to deny.
-  * `:deny` - The subject is denied. Do not process any further rules.
-  * `{:deny, reason}` - A denial with more information. The `reason` could be
+  * `:ok` - The subject is allowed. Do not process any further policies.
+  * `:continue` - The policy could neither allow nor deny the subject. Move on
+    to the next policy. If no policies remain, the default response is to deny.
+  * `:error` - The subject is denied. Do not process any further policies.
+  * `{:error, reason}` - A denial with more information. The `reason` could be
     anything from an atom with some kind of error code to a map with a bunch of
     contextual information.
   """
-  @type rule_result() :: :allow | :continue | :deny | {:deny | any()}
+  @type policy_result() :: :ok | :continue | :error | {:error | any()} | false | nil
 
   @typedoc """
   A function that takes an action, a subject, and a context, and returns a
-  `rule_result`.
+  `policy_result`.
   """
-  @type rule() :: (any(), any(), any() -> rule_result())
+  @type policy() :: (any(), any(), any() -> policy_result())
 
   @doc """
-  Returns a boolean for a given check result. In general, this function won't
-  be called directly.
+  Returns a boolean for a given authorize result. In general, this function
+  won't be called directly.
   """
   @spec allow?(any()) :: boolean()
-  def allow?(:allow), do: true
+  def allow?(:ok), do: true
 
   def allow?(_), do: false
 
   @doc """
-  Similar to `check/4` but returns a boolean response instead. This should be
-  used when you have no use for any potential denial reasons.
+  Similar to `authorize/4` but returns a boolean response instead. This should
+  be used when you have no use for any potential denial reasons.
   """
-  @spec allow?(any(), any(), any(), [rule()]) :: boolean()
-  def allow?(subject, action, context, rules) do
-    allow?(check(subject, action, context, rules))
+  @spec allow?(any(), any(), any(), [policy()]) :: boolean()
+  def allow?(subject, action, context, policies) do
+    allow?(authorize(subject, action, context, policies))
   end
 
   @doc """
   Checks to see whether a subject attempting an action is allowed to do so on a
-  context with a given set of rules.
+  context with a given set of policies.
 
-  Note that the response is not a `rule_result`.
+  Note that the response is not a `policy_result`.
   """
-  @spec check(any(), any(), any(), [rule()]) :: :allow | {:deny | any()}
-  def check(subject, action, context, rules) when is_list(rules) do
-    check_rules(:continue, subject, action, context, rules)
+  @spec authorize(any(), any(), any(), [policy()]) :: :ok | {:error | any()}
+  def authorize(subject, action, context, policies) when is_list(policies) do
+    authorize_policies(:continue, subject, action, context, policies)
   end
 
   @doc """
-  Exports a single rule from an authorizer to used as a rule.
+  Exports a single policy from an authorizer to used as a policy.
   """
-  @spec export_rule(module(), atom()) :: rule()
-  def export_rule(authorizer_module, rule_name)
-      when is_atom(authorizer_module) and is_atom(rule_name),
-      do: &apply(authorizer_module, :rule, [rule_name, &1, &2, &3])
+  @spec export_policy(module(), atom()) :: policy()
+  def export_policy(authorizer_module, policy_name)
+      when is_atom(authorizer_module) and is_atom(policy_name),
+      do: &apply(authorizer_module, :policy, [policy_name, &1, &2, &3])
 
   @doc """
-  Exports all rules from an authorizer module.
+  Exports all policies from an authorizer module.
   """
-  @spec export_rules(module()) :: [rule()]
-  def export_rules(authorizer_module) when is_atom(authorizer_module) do
-    authorizer_module.rules()
+  @spec export_policies(module()) :: [policy()]
+  def export_policies(authorizer_module) when is_atom(authorizer_module) do
+    authorizer_module.policies()
     |> List.flatten()
-    |> Enum.map(&get_rule(authorizer_module, &1))
+    |> Enum.map(&get_policy(authorizer_module, &1))
   end
 
-  defp check_rules(:allow, _subject, _action, _context, _rules), do: :allow
+  defp authorize_policies(:ok, _subject, _action, _context, _policies), do: :ok
 
-  defp check_rules(:continue, _subject, _action, _context, []), do: {:deny, :no_matching_rules}
-
-  defp check_rules(:continue, subject, action, context, [rule | rest]) do
-    rule.(subject, action, context)
-    |> check_rules(subject, action, context, rest)
+  defp authorize_policies(:continue, _subject, _action, _context, []) do
+    {:error, :no_matching_policy}
   end
 
-  defp check_rules(:deny, _subject, _action, _context, _rules), do: {:deny, :access_denied}
+  defp authorize_policies(:continue, subject, action, context, [policy | rest]) do
+    policy.(subject, action, context)
+    |> authorize_policies(subject, action, context, rest)
+  end
 
-  defp check_rules({:deny, _} = result, _subject, _action, _context, _rules), do: result
+  defp authorize_policies(:error, _subject, _action, _context, _policies) do
+    {:error, :access_denied}
+  end
 
-  defp get_rule(_, func) when is_function(func, 3), do: func
+  defp authorize_policies({:error, _} = result, _subject, _action, _context, _policies),
+    do: result
 
-  defp get_rule(authorizer_module, rule_name), do: export_rule(authorizer_module, rule_name)
+  defp get_policy(_, func) when is_function(func, 3), do: func
+
+  defp get_policy(authorizer_module, policy_name),
+    do: export_policy(authorizer_module, policy_name)
 end
