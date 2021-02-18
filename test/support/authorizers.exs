@@ -16,9 +16,9 @@ defmodule Commissar.Test.UserAuthorizer do
 
   def policy(:is_active_user, %{disabled: false}, _, _), do: :continue
 
-  def policy(:is_active_user, _, _, _), do: {:error, :user_not_present}
+  def policy(:is_active_user, _, _, _), do: false
 
-  def policy(:is_super_user, %{super_user: true}, _, _), do: :ok
+  def policy(:is_super_user, %{super_user: true}, _, _), do: true
 end
 
 defmodule Commissar.Test.PermissionAuthorizer do
@@ -29,11 +29,9 @@ defmodule Commissar.Test.PermissionAuthorizer do
 
   @impl true
   def policy(:has_permission, _, action, {_, permissions}) do
-    cond do
-      Enum.member?(permissions, "full_control") -> :ok
-      Enum.member?(permissions, action) -> :ok
-      true -> :continue
-    end
+    Enum.member?(permissions, "full_control") ||
+      Enum.member?(permissions, action) ||
+      :continue
   end
 end
 

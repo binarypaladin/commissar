@@ -1,6 +1,6 @@
 defmodule Commissar.Authorization do
   @moduledoc """
-  Authorizers add a convient way of laying out policies in a manner that makes
+  Authorizers add a convenient way of laying out policies in a manner that makes
   it easy to read. Defining policies in a module that uses
   `Commissar.Authorizer` also adds a catch-all policy that returns `:continue`,
   allowing your own policies to simply focus on `:ok` and `:error` responses.

@@ -21,6 +21,9 @@ defmodule Commissar.AuthorizationTest do
     assert ComplexAuthorizer.authorize(disabled_user, "update", context) ==
              {:error, :user_disabled}
 
+    assert ComplexAuthorizer.authorize(nil, "update", context) ==
+             {:error, :access_denied}
+
     super_user = %{user | super_user: true}
 
     assert ComplexAuthorizer.authorize(super_user, "destroy", {%{resource | locked: true}, []}) ==
